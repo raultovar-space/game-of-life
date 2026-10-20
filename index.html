@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Artificial Life - Conway's Game of Life</title>
+<meta name="description" content="Conway's Game of Life: an interactive cellular automaton showing how complex patterns emerge from simple rules.">
+<style>
+  :root { --bg: #0d0d0d; --cell: hsl(127,100%,50%); --grid: hsl(127,100%,20%); --dead: hsl(0,0%,5%); --text: #d8f5da; --muted: #7fa883; --card: #111811; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: ui-monospace, "JetBrains Mono", Menlo, monospace; padding: 48px 16px; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { text-align: center; font-size: clamp(2.4rem, 8vw, 4.5rem); margin: 0 0 12px; color: var(--cell); text-shadow: 0 0 12px var(--cell), 0 0 28px hsl(127 100% 50% / .5); letter-spacing: .04em; }
+  .sub { text-align: center; color: var(--muted); font-size: 1.1rem; margin: 0 0 40px; }
+  .game { display: flex; flex-direction: column; align-items: center; gap: 24px; margin-bottom: 56px; }
+  canvas { border: 1px solid var(--cell); border-radius: 4px; cursor: pointer; max-width: 100%; box-shadow: 0 0 10px hsl(127 100% 50% / .25); transition: box-shadow .2s; }
+  canvas:hover { box-shadow: 0 0 30px hsl(127 100% 50% / .5); }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  button { background: var(--card); color: var(--text); border: 1px solid var(--cell); border-radius: 6px; padding: 8px 16px; font: inherit; cursor: pointer; }
+  button:hover:not(:disabled) { background: hsl(127 100% 50% / .12); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .speed { display: flex; align-items: center; gap: 16px; width: 100%; max-width: 640px; color: var(--muted); font-size: .9rem; }
+  .speed input { flex: 1; accent-color: var(--cell); }
+  .speed output { color: var(--cell); min-width: 40px; text-align: right; }
+  .card { background: var(--card); border: 1px solid hsl(127 100% 50% / .3); border-radius: 8px; padding: 24px; margin-bottom: 24px; line-height: 1.6; }
+  .card h2, .card h3 { color: var(--cell); margin-top: 0; }
+  .rule { display: flex; gap: 12px; } .rule b { color: var(--cell); min-width: 30px; }
+  b { color: var(--cell); }
+  footer { text-align: center; color: var(--muted); font-size: .85rem; margin-top: 56px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ARTIFICIAL LIFE</h1>
+  <p class="sub">Conway's Game of Life - A Cellular Automaton</p>
+
+  <section class="game">
+    <canvas id="board" width="320" height="320" aria-label="Game of Life grid; click cells to toggle them"></canvas>
+    <div class="controls">
+      <button id="run">▶ Start</button>
+      <button id="clear">Clear</button>
+      <button id="random">Random</button>
+      <button id="reset">Reset</button>
+    </div>
+    <label class="speed">Speed: <input id="speed" type="range" min="1" max="100" value="100"><output id="speedOut">100%</output></label>
+  </section>
+
+  <section>
+    <div class="card"><h2>What is Conway's Game of Life?</h2>
+      <p>The Game of Life is a cellular automaton created by mathematician John Conway in 1970. It's a zero-player game where the evolution is determined by its initial state, requiring no further input.</p></div>
+    <div class="card"><h3>The Rules</h3>
+      <div class="rule"><b>01.</b><p>Any live cell with 2 or 3 live neighbors survives to the next generation.</p></div>
+      <div class="rule"><b>02.</b><p>Any dead cell with exactly 3 live neighbors becomes a live cell (reproduction).</p></div>
+      <div class="rule"><b>03.</b><p>All other live cells die in the next generation (underpopulation or overpopulation).</p></div>
+      <div class="rule"><b>04.</b><p>All other dead cells stay dead.</p></div></div>
+    <div class="card"><h3>How to Use</h3>
+      <p><b>Click</b> on cells to toggle them alive or dead before starting.</p>
+      <p><b>Random</b> generates a random initial pattern to explore.</p>
+      <p><b>Start</b> to watch the simulation evolve according to the rules.</p>
+      <p><b>Speed</b> controls how fast generations advance.</p></div>
+    <div class="card"><h3>Why "Artificial Life"?</h3>
+      <p>Despite its simple rules, the Game of Life exhibits complex, emergent behavior. Patterns can evolve, move, and interact in surprising ways, demonstrating how complexity can arise from simple deterministic rules—much like life itself.</p></div>
+  </section>
+
+  <footer>Created with <b>&lt;code&gt;</b> &amp; <b>mathematics</b></footer>
+</div>
+<script>
+(() => {
+  const CELL = 16, canvas = document.getElementById("board"), ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height, COLS = Math.floor(W / CELL), ROWS = Math.floor(H / CELL);
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const [CELL_C, GRID_C, DEAD_C] = ["--cell", "--grid", "--dead"].map(css);
+  const btn = id => document.getElementById(id);
+  const empty = () => Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+  const random = () => Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => Math.random() > 0.7));
+  let grid = empty(), running = false, timer = null;
+
+  function neighbors(r, c) {
+    let n = 0;
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      if (!i && !j) continue;
+      const y = r + i, x = c + j;
+      if (y >= 0 && y < ROWS && x >= 0 && x < COLS && grid[y][x]) n++;
+    }
+    return n;
+  }
+  function step() {
+    grid = grid.map((row, r) => row.map((alive, c) => { const n = neighbors(r, c); return alive ? n === 2 || n === 3 : n === 3; }));
+    draw();
+  }
+  function draw() {
+    ctx.shadowBlur = 0; ctx.fillStyle = DEAD_C; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = GRID_C; ctx.lineWidth = 1; ctx.beginPath();
+    for (let x = 0; x <= W; x += CELL) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+    for (let y = 0; y <= H; y += CELL) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.stroke();
+    ctx.fillStyle = CELL_C; ctx.shadowColor = CELL_C; ctx.shadowBlur = 5;
+    grid.forEach((row, r) => row.forEach((alive, c) => { if (alive) ctx.fillRect(c * CELL + 1, r * CELL + 1, CELL - 2, CELL - 2); }));
+  }
+  const interval = () => 1000 - btn("speed").value * 9;
+  function setRunning(on) {
+    running = on; clearInterval(timer);
+    if (on) timer = setInterval(step, interval());
+    btn("run").textContent = on ? "❚❚ Pause" : "▶ Start";
+    btn("clear").disabled = btn("random").disabled = on;
+  }
+  btn("run").onclick = () => setRunning(!running);
+  btn("clear").onclick = () => { grid = empty(); draw(); };
+  btn("random").onclick = () => { grid = random(); draw(); };
+  btn("reset").onclick = () => { setRunning(false); grid = empty(); draw(); };
+  btn("speed").oninput = e => { btn("speedOut").textContent = e.target.value + "%"; if (running) setRunning(true); };
+  canvas.onclick = e => {
+    if (running) return;
+    const rect = canvas.getBoundingClientRect();
+    const c = Math.floor((e.clientX - rect.left) * W / rect.width / CELL), r = Math.floor((e.clientY - rect.top) * H / rect.height / CELL);
+    if (grid[r] && grid[r][c] !== undefined) { grid[r][c] = !grid[r][c]; draw(); }
+  };
+  draw();
+})();
+</script>
+</body>
+</html>
